@@ -21,7 +21,11 @@ typedef struct fs_superblock
 }fs_superblock_t;
 
 void initialise_super_block(struct fs_vfs *);
+inline void deallocate_super_block(struct fs_vfs * fs_vfs);
+
 struct fs_block * initialise_block(struct fs_vfs * fs_vfs, void * start_memory, int flag);
+inline void destroy_block(struct fs_vfs * fs_vfs, struct fs_block * block);
+
 int write_to_block(struct fs_block * block, int offset, void * src, int size);
 void initialise_disk_blocks(struct fs_vfs * fs_vfs, void * start_memory);
 

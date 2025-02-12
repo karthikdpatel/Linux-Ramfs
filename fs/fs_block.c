@@ -18,6 +18,11 @@ void initialise_super_block(struct fs_vfs * fs_vfs)
 	mutex_init(&fs_vfs->super_block->superblock_mutex);
 }
 
+inline void deallocate_super_block(struct fs_vfs * fs_vfs)
+{
+	kfree(fs_vfs->super_block);
+}
+
 /*
 Copies the data from src memory to the given disk block
 Parameters:-
@@ -30,12 +35,25 @@ int write_to_block(struct fs_block * block, int offset, void * src, int size)
 {
 	if(offset < 0 || offset > FS_BLOCK_SIZE || block == NULL || src == NULL)
 	{
-		printk(KERN_ERR "FILE_SYSTEM : Wrong input parameter in write_to_block()\n");
+		if(offset < 0)
+			printk(KERN_ERR "FILE_SYSTEM_ERROR : offset < 0\n");
+			
+		if(offset > FS_BLOCK_SIZE)
+			printk(KERN_ERR "FILE_SYSTEM_ERROR : offset > FS_BLOCK_SIZE\n");
+			
+		if(block == NULL)
+			printk(KERN_ERR "FILE_SYSTEM_ERROR : block == NULL\n");
+			
+		if(src == NULL)
+			printk(KERN_ERR "FILE_SYSTEM_ERROR : src == NULL\n");
+			
+		printk(KERN_ERR "FILE_SYSTEM_ERROR : Wrong input parameter in write_to_block()\n");
 		return -FS_EINPUT_PARAMETER;
 	}
 	if(size > FS_BLOCK_SIZE || size > (FS_BLOCK_SIZE - offset))
 	{
-		printk(KERN_ERR "FILE_SYSTEM : Size of data requested to write to block is greater than block size\n");
+		printk(KERN_DEBUG "FILE_SYSTEM_ERROR_DEBUG : size:%d, offset:%d\n", size, offset);
+		printk(KERN_ERR "FILE_SYSTEM_ERROR : Size of data requested to write to block is greater than block size\n");
 		return -FS_EBLOCK_SIZE;
 	}
 	
@@ -73,6 +91,11 @@ struct fs_block * initialise_block(struct fs_vfs * fs_vfs, void * start_memory, 
 	return block;
 }
 
+inline void destroy_block(struct fs_vfs * fs_vfs, struct fs_block * block)
+{
+	list_del(&block->fs_vfs_list);
+	kfree(block);
+}
 
 /*
 Initialises disk blocks
@@ -88,7 +111,7 @@ void initialise_disk_blocks(struct fs_vfs * fs_vfs, void * start_memory)
 	
 	num_disk_block -= num_super_block;
 	
-	struct fs_block * block, * prev_block;
+	struct fs_block * block, * prev_block = NULL;
 	
 	bool first_super_block_flag = true;
 	
@@ -157,6 +180,14 @@ struct fs_block * mem_to_disk_block(struct fs_vfs * fs_vfs, void * mem_addr)
 	
 	struct fs_block * block;
 	
+	list_for_each_entry(block, &fs_vfs->super_block_disk_list, fs_vfs_list)
+	{
+		if((block->block_addr <= mem) && (mem < (block->block_addr + FS_BLOCK_SIZE)))
+		{
+			return block;
+		}
+	}
+	
 	list_for_each_entry(block, &fs_vfs->free_disk_block_list, fs_vfs_list)
 	{
 		if((block->block_addr <= mem) && (mem < (block->block_addr + FS_BLOCK_SIZE)))
@@ -165,7 +196,7 @@ struct fs_block * mem_to_disk_block(struct fs_vfs * fs_vfs, void * mem_addr)
 		}
 	}
 	
-	list_for_each_entry(block, &fs_vfs->super_block_disk_list, fs_vfs_list)
+	list_for_each_entry(block, &fs_vfs->allocated_disk_block_list, fs_vfs_list)
 	{
 		if((block->block_addr <= mem) && (mem < (block->block_addr + FS_BLOCK_SIZE)))
 		{
@@ -267,6 +298,7 @@ void put_free_block(struct fs_vfs * fs_vfs, struct fs_block * block)
 		}
 		
 		write_to_block(block, 0, (void *)block_address, 100*sizeof(uintptr_t));
+		kfree(block_address);
 		superblock->blocks[99] = block;
 		superblock->fs_block_ind = 99;
 		

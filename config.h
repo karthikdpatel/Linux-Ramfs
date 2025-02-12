@@ -1,6 +1,6 @@
 
-//While changing system size add an extra super block while adding 100 diskblocks i.e, want to add 200 disk block then add 2 super blocks which makes the total diskblocks as 202 and total size as (202*4*1024)
-#define FILE_SYSTEM_SIZE ((300)*4*1024)
+//While changing system size bring it to next 100 diskblock i.e want to set 302 disk blocks set the size to 400*4*1024
+#define FILE_SYSTEM_SIZE ((66100)*4*1024)
 
 #define FS_BLOCK_SIZE (4*1024)
 #define FS_BYTES_PER_INODE (16*1024)

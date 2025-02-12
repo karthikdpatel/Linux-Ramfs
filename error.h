@@ -3,4 +3,5 @@
 #define FS_EBLOCK_SIZE 3
 #define FS_EINPUT_PARAMETER 4
 #define FS_ENO_FREE_BLOCK 5
+#define FS_E_MAX_LIMIT 6
 

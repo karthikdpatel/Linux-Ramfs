@@ -14,7 +14,7 @@ This structure represent the 12 disk pointers
 typedef struct fs_disk_map
 {
 	struct fs_block *blocks[12];
-	uint8_t disk_map_flag;
+	uintptr_t disk_map_flag;
 
 	uint8_t direct_pointer_ind;
 	uint16_t single_indirect_pointer_ind;
@@ -53,8 +53,11 @@ typedef struct fs_inode
 
 
 int alloc_inode(struct fs_vfs * fs_vfs);
-int allocate_inodes(struct fs_vfs * fs_vfs);
+void destroy_inode(struct fs_inode * inode);
 
+int allocate_inodes(struct fs_vfs * fs_vfs);
+struct fs_inode * get_inode(struct fs_vfs * fs_vfs);
+void put_inode(struct fs_vfs * fs_vfs, struct fs_inode * inode);
 int alloc_disk_to_inode(struct fs_vfs * fs_vfs, struct fs_inode * inode);
 
 
