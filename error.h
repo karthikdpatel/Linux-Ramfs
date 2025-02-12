@@ -1,0 +1,6 @@
+#define FS_EADDR 1
+#define FS_EMALLOC 2
+#define FS_EBLOCK_SIZE 3
+#define FS_EINPUT_PARAMETER 4
+#define FS_ENO_FREE_BLOCK 5
+

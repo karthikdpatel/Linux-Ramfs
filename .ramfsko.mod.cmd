@@ -1,0 +1,1 @@
+savedcmd_/home/karthikdpatel/Documents/Filesystem/ramfs/ramfsko.mod := printf '%s\n'   ramfs.o fs/fs_vfs.o fs/fs_block.o fs/fs_inode.o | awk '!x[$$0]++ { print("/home/karthikdpatel/Documents/Filesystem/ramfs/"$$0) }' > /home/karthikdpatel/Documents/Filesystem/ramfs/ramfsko.mod

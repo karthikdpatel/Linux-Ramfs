@@ -1,0 +1,1 @@
+savedcmd_/home/karthikdpatel/Documents/Filesystem/ramfs/Module.symvers :=  scripts/mod/modpost -M -m -a      -o /home/karthikdpatel/Documents/Filesystem/ramfs/Module.symvers -T /home/karthikdpatel/Documents/Filesystem/ramfs/modules.order -i Module.symvers -e 

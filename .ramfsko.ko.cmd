@@ -1,0 +1,1 @@
+savedcmd_/home/karthikdpatel/Documents/Filesystem/ramfs/ramfsko.ko := ld -r -m elf_x86_64 -z noexecstack --build-id=sha1  -T scripts/module.lds -o /home/karthikdpatel/Documents/Filesystem/ramfs/ramfsko.ko /home/karthikdpatel/Documents/Filesystem/ramfs/ramfsko.o /home/karthikdpatel/Documents/Filesystem/ramfs/ramfsko.mod.o

@@ -1,0 +1,1 @@
+savedcmd_/home/karthikdpatel/Documents/Filesystem/ramfs/ramfsko.o := ld -m elf_x86_64 -z noexecstack   -r -o /home/karthikdpatel/Documents/Filesystem/ramfs/ramfsko.o @/home/karthikdpatel/Documents/Filesystem/ramfs/ramfsko.mod 
