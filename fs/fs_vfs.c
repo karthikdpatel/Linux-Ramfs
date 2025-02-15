@@ -13,6 +13,7 @@ void intialise_file_system(struct fs_vfs * fs_vfs)
 	
 	mutex_init(&fs_vfs->vfs_lock);
 	
+	fs_vfs->total_num_disk_blocks = FILE_SYSTEM_SIZE/FS_BLOCK_SIZE;
 	fs_vfs->num_free_disk_blocks = FILE_SYSTEM_SIZE/FS_BLOCK_SIZE;
 	fs_vfs->num_free_inodes = 0;
 }

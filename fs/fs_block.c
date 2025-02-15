@@ -167,6 +167,8 @@ void initialise_disk_blocks(struct fs_vfs * fs_vfs, void * start_memory)
 	mutex_unlock(&fs_vfs->super_block->superblock_mutex);
 	
 	printk("FILE_SYSTEM : Initialised %d disk blocks\n", FILE_SYSTEM_SIZE/FS_BLOCK_SIZE);
+	printk("FILE_SYSTEM : Initialised %d super_block disk blocks\n", num_super_block);
+	printk("FILE_SYSTEM : Initialised %d free disk blocks\n", block_count);
 }
 
 /*
@@ -188,7 +190,7 @@ struct fs_block * mem_to_disk_block(struct fs_vfs * fs_vfs, void * mem_addr)
 		}
 	}
 	
-	list_for_each_entry(block, &fs_vfs->free_disk_block_list, fs_vfs_list)
+	list_for_each_entry(block, &fs_vfs->allocated_disk_block_list, fs_vfs_list)
 	{
 		if((block->block_addr <= mem) && (mem < (block->block_addr + FS_BLOCK_SIZE)))
 		{
@@ -196,7 +198,7 @@ struct fs_block * mem_to_disk_block(struct fs_vfs * fs_vfs, void * mem_addr)
 		}
 	}
 	
-	list_for_each_entry(block, &fs_vfs->allocated_disk_block_list, fs_vfs_list)
+	list_for_each_entry(block, &fs_vfs->free_disk_block_list, fs_vfs_list)
 	{
 		if((block->block_addr <= mem) && (mem < (block->block_addr + FS_BLOCK_SIZE)))
 		{
@@ -284,6 +286,17 @@ struct fs_block * get_free_block(struct fs_vfs * fs_vfs)
 
 void put_free_block(struct fs_vfs * fs_vfs, struct fs_block * block)
 {
+	if(!block)
+	{
+		printk(KERN_ERR "FILE_SYSTEM_ERROR : block is NULL in put_free_block()\n");
+		return;
+	}
+	
+	if(!fs_vfs)
+	{
+		printk(KERN_ERR "FILE_SYSTEM_ERROR : fs_vfs is NULL in put_free_block()\n");
+		return;
+	}
 	struct fs_superblock * superblock = fs_vfs->super_block;
 	
 	mutex_lock(&superblock->superblock_mutex);
@@ -296,12 +309,10 @@ void put_free_block(struct fs_vfs * fs_vfs, struct fs_block * block)
 			block_address[i] = superblock->blocks[i]->block_addr;
 			superblock->blocks[i] = NULL;
 		}
-		
 		write_to_block(block, 0, (void *)block_address, 100*sizeof(uintptr_t));
 		kfree(block_address);
 		superblock->blocks[99] = block;
 		superblock->fs_block_ind = 99;
-		
 		mutex_lock(&fs_vfs->vfs_lock);
 		list_del(&block->fs_vfs_list);
 		list_add(&block->fs_vfs_list, &fs_vfs->super_block_disk_list);
@@ -312,8 +323,9 @@ void put_free_block(struct fs_vfs * fs_vfs, struct fs_block * block)
 	{
 		superblock->fs_block_ind -= 1;
 		superblock->blocks[superblock->fs_block_ind] = block;
-		
 		mutex_lock(&fs_vfs->vfs_lock);
+		if(!block)
+			printk("block is null\n");
 		list_del(&block->fs_vfs_list);
 		list_add(&block->fs_vfs_list, &fs_vfs->free_disk_block_list);
 		fs_vfs->num_free_disk_blocks += 1;

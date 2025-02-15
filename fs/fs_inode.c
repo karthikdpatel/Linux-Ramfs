@@ -21,16 +21,18 @@ int alloc_inode(struct fs_vfs * fs_vfs)
 	
 	inode->disk_map = kmalloc(sizeof(struct fs_disk_map), GFP_KERNEL);
 	
-	for(int i = 0; i < 12; i++)
+	inode->disk_map->disk_map_flag = 0x0;
+	
+	for(int i = 0; i < 10; i++)
 	{
 		inode->disk_map->blocks[i] = NULL;
 	}
 	
-	list_add_tail(&inode->fs_vfs_inode_list, &fs_vfs->free_inode_list);
-	inode->disk_map->disk_map_flag = 0x0;
 	inode->disk_map->direct_pointer_ind = 0;
-	inode->disk_map->single_indirect_pointer_ind = 0;
-	inode->disk_map->double_indirect_pointer_ind = 0;
+	inode->disk_map->single_indirect = NULL;
+	inode->disk_map->double_indirect = NULL;
+	
+	list_add_tail(&inode->fs_vfs_inode_list, &fs_vfs->free_inode_list);
 	
 	return 0;
 }
@@ -42,7 +44,7 @@ void destroy_inode(struct fs_inode * inode)
 	kfree(inode);
 }
 
-int allocate_inodes(struct fs_vfs * fs_vfs)
+int intialise_inodes(struct fs_vfs * fs_vfs)
 {
 	int ret;
 	printk("FILE_SYSTEM : Initialising inodes\n");
@@ -88,10 +90,65 @@ void put_inode(struct fs_vfs * fs_vfs, struct fs_inode * inode)
 }
 
 
-int alloc_disk_to_inode(struct fs_vfs * fs_vfs, struct fs_inode * inode)
+
+struct fs_single_indirect_block * allocate_fs_single_indirect_block(void)
+{
+	struct fs_single_indirect_block * single_indirect = kmalloc(sizeof(struct fs_single_indirect_block), GFP_KERNEL);
+	if(!single_indirect)
+		return NULL;
+	
+	single_indirect->pointer_ind = 0;
+	
+	for(int i = 0; i < 256; i++)
+	{
+		single_indirect->blocks[i] = NULL;
+	}
+	
+	return single_indirect;
+}
+
+inline void destroy_fs_single_indirect_block(struct fs_single_indirect_block * single_indirect)
+{
+	if(single_indirect)
+		kfree(single_indirect);
+	else
+		printk(KERN_ERR"FILE_SYSTEM_ERROR : destroy_fs_single_indirect_block passed NULL");
+}
+
+
+struct fs_double_indirect_block * allocate_fs_double_indirect_block(void)
+{
+	struct fs_double_indirect_block * double_indirect = kmalloc(sizeof(struct fs_double_indirect_block), GFP_KERNEL);
+	if(!double_indirect)
+		return NULL;
+	
+	double_indirect->pointer_ind = 0;
+	
+	for(int i = 0; i < 256; i++)
+	{
+		double_indirect->blocks[i] = NULL;
+	}
+	
+	return double_indirect;
+}
+
+inline void destroy_fs_double_indirect_block(struct fs_double_indirect_block * double_indirect)
+{
+	if(double_indirect)
+		kfree(double_indirect);
+	else
+		printk(KERN_ERR"FILE_SYSTEM_ERROR : destroy_fs_single_indirect_block passed NULL");
+}
+
+
+
+int alloc_disk_to_inode(struct fs_vfs *fs_vfs, struct fs_inode *inode)
 {
 	mutex_lock(&inode->inode_mutex);
-	if(!(inode->disk_map->disk_map_flag & 0x01))
+	
+	struct fs_disk_map * disk_map = inode->disk_map;
+	
+	if( !(disk_map->disk_map_flag & 0x01) )
 	{
 		struct fs_block * block = get_free_block(fs_vfs);
 		if(!block)
@@ -99,31 +156,24 @@ int alloc_disk_to_inode(struct fs_vfs * fs_vfs, struct fs_inode * inode)
 			mutex_unlock(&inode->inode_mutex);
 			return -FS_ENO_FREE_BLOCK;
 		}
-		inode->disk_map->blocks[inode->disk_map->direct_pointer_ind] = block;
-		inode->disk_map->direct_pointer_ind += 1;
-		if(inode->disk_map->direct_pointer_ind == 10)
+		
+		disk_map->blocks[inode->disk_map->direct_pointer_ind] = block;
+		disk_map->direct_pointer_ind += 1;
+		if(disk_map->direct_pointer_ind == 10)
 		{
-			inode->disk_map->disk_map_flag = inode->disk_map->disk_map_flag | 0x01;
-			inode->disk_map->direct_pointer_ind = 0;
+			disk_map->disk_map_flag = disk_map->disk_map_flag | 0x01;
 		}
 	}
-	else if(!(inode->disk_map->disk_map_flag & 0x02))
+	else if( !(disk_map->disk_map_flag & 0x02) )
 	{
-		struct fs_block * first_indirection_block;
-		if(inode->disk_map->blocks[10] == NULL)
+		if(!disk_map->single_indirect)
 		{
-			first_indirection_block = get_free_block(fs_vfs);
-			if(!first_indirection_block)
+			disk_map->single_indirect = allocate_fs_single_indirect_block();
+			if(!disk_map->single_indirect)
 			{
 				mutex_unlock(&inode->inode_mutex);
-				return -FS_ENO_FREE_BLOCK;
+				return -FS_EMALLOC;
 			}
-			inode->disk_map->blocks[10] = first_indirection_block;
-			inode->disk_map->single_indirect_pointer_ind = 0;
-		}
-		else
-		{
-			first_indirection_block = inode->disk_map->blocks[10];
 		}
 		
 		struct fs_block * block = get_free_block(fs_vfs);
@@ -133,114 +183,73 @@ int alloc_disk_to_inode(struct fs_vfs * fs_vfs, struct fs_inode * inode)
 			return -FS_ENO_FREE_BLOCK;
 		}
 		
-		uintptr_t * addr = kmalloc(sizeof(uintptr_t), GFP_KERNEL);
-		(*addr) = block->block_addr;
-		int ret = write_to_block(first_indirection_block, (sizeof(uintptr_t)*inode->disk_map->single_indirect_pointer_ind), (void *)addr, sizeof(uintptr_t));
-		kfree(addr);
-		
-		if(ret)
+		disk_map->single_indirect->blocks[disk_map->single_indirect->pointer_ind] = block;
+		disk_map->single_indirect->pointer_ind += 1;
+		if(disk_map->single_indirect->pointer_ind == 256)
 		{
-			mutex_unlock(&inode->inode_mutex);
-			return ret;
-		}
-		
-		inode->disk_map->single_indirect_pointer_ind += 1;
-		if(inode->disk_map->single_indirect_pointer_ind == 256)
-		{
-			inode->disk_map->single_indirect_pointer_ind = 0;
-			inode->disk_map->disk_map_flag = inode->disk_map->disk_map_flag | 0x02;
+			disk_map->disk_map_flag = disk_map->disk_map_flag | 0x02;
 		}
 	}
-	else if(!(inode->disk_map->disk_map_flag & 0x04))
+	else if( !(disk_map->disk_map_flag & 0x04) )
 	{
-		printk(KERN_DEBUG "FILE_SYSTEM_DEBUG : Second level\n");
-		struct fs_block * first_indirection_block, * second_indirection_block;
-		if(inode->disk_map->blocks[11] == NULL)
+		if(!disk_map->double_indirect)
 		{
-			first_indirection_block = get_free_block(fs_vfs);
-			if(!first_indirection_block)
+			disk_map->double_indirect = allocate_fs_double_indirect_block();
+			if(!disk_map->double_indirect)
 			{
 				mutex_unlock(&inode->inode_mutex);
-				return -FS_ENO_FREE_BLOCK;
+				return -FS_EMALLOC;
 			}
-			inode->disk_map->blocks[11] = first_indirection_block;
-			inode->disk_map->single_indirect_pointer_ind = 0;
-			inode->disk_map->double_indirect_pointer_ind = 0;
+		}
+		
+		struct fs_double_indirect_block * double_indirect = disk_map->double_indirect;
+		
+		if(!double_indirect->blocks[double_indirect->pointer_ind])
+		{
+			double_indirect->blocks[double_indirect->pointer_ind] = allocate_fs_single_indirect_block();
 			
-			second_indirection_block = get_free_block(fs_vfs);
-			if(!second_indirection_block)
+			if(!double_indirect->blocks[double_indirect->pointer_ind])
 			{
 				mutex_unlock(&inode->inode_mutex);
-				return -FS_ENO_FREE_BLOCK;
+				return -FS_EMALLOC;
 			}
-			uintptr_t * addr = kmalloc(sizeof(uintptr_t), GFP_KERNEL);
-			(*addr) = second_indirection_block->block_addr;
-			int ret = write_to_block(first_indirection_block, 0, (void *)addr, sizeof(uintptr_t));
-			kfree(addr);
+		}
+		
+		if(double_indirect->blocks[double_indirect->pointer_ind]->pointer_ind == 256)
+		{
+			double_indirect->pointer_ind += 1;
 			
-			if(ret)
+			if(double_indirect->pointer_ind == 256)
 			{
+				disk_map->disk_map_flag = disk_map->disk_map_flag | 0x04;
 				mutex_unlock(&inode->inode_mutex);
-				return ret;
+				printk(KERN_ERR "FILE_SYSTEM_ERROR : Cannot allocate more memory to the inode. MAX LIMIT reached\n");
+				return -FS_E_MAX_LIMIT;
 			}
-		}
-		else
-		{
-			first_indirection_block = inode->disk_map->blocks[11];
-			void * second_indirection_block_addr = (void *)first_indirection_block->block_addr + sizeof(uintptr_t)*inode->disk_map->single_indirect_pointer_ind;
-			printk(KERN_INFO "FILE_SYSTEM_INFO : %lx\n", (uintptr_t)second_indirection_block_addr);
-			second_indirection_block = mem_to_disk_block(fs_vfs, second_indirection_block_addr);
-		}
-		
-		struct fs_block * block = get_free_block(fs_vfs);
-		if(!block)
-		{
-			mutex_unlock(&inode->inode_mutex);
-			return -FS_ENO_FREE_BLOCK;
-		}
-		
-		uintptr_t * addr = kmalloc(sizeof(uintptr_t), GFP_KERNEL);
-		(*addr) = block->block_addr;
-		int ret = write_to_block(second_indirection_block, (sizeof(uintptr_t)*inode->disk_map->double_indirect_pointer_ind), (void *)addr, sizeof(uintptr_t));
-		kfree(addr);
-		
-		if(ret)
-		{
-			mutex_unlock(&inode->inode_mutex);
-			return ret;
-		}
-		
-		inode->disk_map->double_indirect_pointer_ind += 1;
-		if(inode->disk_map->double_indirect_pointer_ind == 256)
-		{
-			inode->disk_map->double_indirect_pointer_ind = 0;
-			inode->disk_map->single_indirect_pointer_ind += 1;
-			if(inode->disk_map->single_indirect_pointer_ind == 256)
+			
+			if(!double_indirect->blocks[double_indirect->pointer_ind])
 			{
-				inode->disk_map->single_indirect_pointer_ind = 0;
-				inode->disk_map->disk_map_flag = inode->disk_map->disk_map_flag | 0x04;
-			}
-			else
-			{
-				struct fs_block * new_second_indirection_block = get_free_block(fs_vfs);
-				if(!new_second_indirection_block)
-				{
-					mutex_unlock(&inode->inode_mutex);
-					return -FS_ENO_FREE_BLOCK;
-				}
-				uintptr_t * addr = kmalloc(sizeof(uintptr_t), GFP_KERNEL);
-				(*addr) = new_second_indirection_block->block_addr;
-				int ret = write_to_block(first_indirection_block, (sizeof(uintptr_t)*inode->disk_map->single_indirect_pointer_ind), (void *)addr, sizeof(uintptr_t));
-				kfree(addr);
+				double_indirect->blocks[double_indirect->pointer_ind] = allocate_fs_single_indirect_block();
 				
-				if(ret)
+				if(!double_indirect->blocks[double_indirect->pointer_ind])
 				{
 					mutex_unlock(&inode->inode_mutex);
-					return ret;
+					return -FS_EMALLOC;
 				}
 			}
 		}
 		
+		struct fs_single_indirect_block * single_indirect = double_indirect->blocks[double_indirect->pointer_ind];
+		
+		struct fs_block * block = get_free_block(fs_vfs);
+		if(!block)
+		{
+			mutex_unlock(&inode->inode_mutex);
+			return -FS_ENO_FREE_BLOCK;
+		}
+		
+		single_indirect->blocks[single_indirect->pointer_ind] = block;
+		single_indirect->pointer_ind += 1;
 	}
 	else
 	{
@@ -250,8 +259,142 @@ int alloc_disk_to_inode(struct fs_vfs * fs_vfs, struct fs_inode * inode)
 	}
 	
 	mutex_unlock(&inode->inode_mutex);
+	
 	return 0;
 }
 
+void destroy_inode_disk_map_single_indirect(struct fs_vfs * fs_vfs, struct fs_single_indirect_block * single_indirect)
+{
+	while(single_indirect->pointer_ind >= 0)
+	{
+		put_free_block(fs_vfs, single_indirect->blocks[single_indirect->pointer_ind]);
+		single_indirect->blocks[single_indirect->pointer_ind] = NULL;
+		single_indirect->pointer_ind -= 1;
+		
+	}
+	destroy_fs_single_indirect_block(single_indirect);
+}
 
+void trim_inode_disk_map(struct fs_vfs * fs_vfs, struct fs_inode * inode)
+{
+	mutex_lock(&inode->inode_mutex);
+	
+	struct fs_disk_map * disk_map = inode->disk_map;
+	
+	if(disk_map->double_indirect)
+	{
+		struct fs_double_indirect_block * double_indirect = disk_map->double_indirect;
+		if(double_indirect->pointer_ind == 256)
+		{
+			double_indirect->pointer_ind -= 1;
+		}
+		
+		struct fs_single_indirect_block * single_indirect = double_indirect->blocks[double_indirect->pointer_ind];
+		single_indirect->pointer_ind -= 1;
+		if(single_indirect->pointer_ind < 0)
+		{
+			destroy_fs_single_indirect_block(single_indirect);
+			double_indirect->blocks[double_indirect->pointer_ind] = NULL;
+			double_indirect->pointer_ind -= 1;
+			if(double_indirect->pointer_ind < 0)
+			{
+				destroy_fs_double_indirect_block(double_indirect);
+				disk_map->double_indirect = NULL;
+			}
+			single_indirect = double_indirect->blocks[double_indirect->pointer_ind];
+			single_indirect->pointer_ind = 255;
+		}
+		
+		while(disk_map->double_indirect)
+		{
+			struct fs_block * block = single_indirect->blocks[single_indirect->pointer_ind];
+			put_free_block(fs_vfs, block);
+			single_indirect->blocks[single_indirect->pointer_ind] = NULL;
+			single_indirect->pointer_ind -= 1;
+			
+			if(single_indirect->pointer_ind < 0)
+			{
+				destroy_fs_single_indirect_block(single_indirect);
+				double_indirect->blocks[double_indirect->pointer_ind] = NULL;
+				double_indirect->pointer_ind -= 1;
+				if(double_indirect->pointer_ind < 0)
+				{
+					destroy_fs_double_indirect_block(double_indirect);
+					disk_map->double_indirect = NULL;
+					break;
+				}
+				single_indirect = double_indirect->blocks[double_indirect->pointer_ind];
+				single_indirect->pointer_ind = 255;
+			}
+		}
+	}
+	
+	if(disk_map->single_indirect)
+	{
+		struct fs_single_indirect_block * single_indirect = disk_map->single_indirect;
+		
+		single_indirect->pointer_ind -= 1;
+		//printk("FILE_SYSTEM : single_indirect->pointer_ind:%d\n", single_indirect->pointer_ind);
+		destroy_inode_disk_map_single_indirect(fs_vfs, single_indirect);
+		disk_map->single_indirect = NULL;
+	}
+	
+	
+	disk_map->direct_pointer_ind -= 1;
+	
+	//printk("FILE_SYSTEM : inode->disk_map->direct_pointer_ind:%d\n", inode->disk_map->direct_pointer_ind);
+	while(disk_map->direct_pointer_ind >= 0)
+	{
+		put_free_block(fs_vfs, disk_map->blocks[disk_map->direct_pointer_ind]);
+		disk_map->blocks[disk_map->direct_pointer_ind] = NULL;
+		disk_map->direct_pointer_ind -= 1;
+	}
+	
+	inode->disk_map->disk_map_flag = 0x0;
+	disk_map->direct_pointer_ind = 0;
+	
+	mutex_unlock(&inode->inode_mutex);
+}
+
+/*
+void remove_last_disk_block_from_inode(struct fs_vfs * fs_vfs, struct fs_inode * inode)
+{
+	if(inode->disk_map->disk_map_flag == 0x0)
+		return;
+	
+	mutex_lock(&inode->inode_mutex);
+	
+	struct fs_disk_map * disk_map = inode->disk_map;
+	
+	if(disk_map->double_indirect)
+	{
+		struct fs_double_indirect_block * double_indirect = disk_map->double_indirect;
+		if(double_indirect->pointer_ind == 256)
+		{
+			double_indirect->pointer_ind -= 1;
+		}
+		
+		struct fs_single_indirect_block * single_indirect = double_indirect->blocks[double_indirect->pointer_ind];
+		single_indirect->pointer_ind -= 1;
+		
+		put_free_block(fs_vfs, single_indirect->blocks[single_indirect->pointer_ind]);
+		single_indirect->blocks[single_indirect->pointer_ind] = NULL;
+		
+		if(single_indirect->pointer_ind == 0)
+		{
+			destroy_fs_single_indirect_block(single_indirect);
+			double_indirect->blocks[double_indirect->pointer_ind] = NULL;
+			double_indirect->pointer_ind -= 1;
+			if(double_indirect->pointer_ind < 0)
+			{
+				destroy_fs_double_indirect_block(double_indirect);
+				disk_map->double_indirect = NULL;
+				disk_map->disk_map_flag = disk_map->disk_map_flag & 0xf
+			}
+		}
+	}
+	
+	mutex_unlock(&inode->inode_mutex);
+}
+*/
 
